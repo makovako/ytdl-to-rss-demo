@@ -13,3 +13,5 @@ This app should (will) be able to receive youtube url for downloading, download 
 - [ ] - find out, if the download path is safe to use at it is
 - [ ] - protect smhw the download path, with password or sth
 - [ ] - make status page, to show what is downloading, downloaded, also protected
+- [ ] - create docker image
+- [ ] - create produciton ready docker image
