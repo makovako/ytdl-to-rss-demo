@@ -2,9 +2,43 @@ import youtube_dl
 import os
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
+from flask_marshmallow import Marshmallow
 
 app = Flask(__name__)
 
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///'+os.path.join(basedir, 'db.sqlite')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+ma = Marshmallow(app)
+
+class Video(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    youtube_id = db.Column(db.String(20))
+    title = db.Column(db.String(200))
+    description = db.Column(db.String)
+    uploader = db.Column(db.String(200))
+    thumbnail = db.Column(db.String)
+
+    def __init__(self, youtube_id, title, description, uploader, thumbnail):
+        self.youtube_id = youtube_id
+        self.title = title
+        self.description = description
+        self.uploader = uploader
+        self.thumbnail = thumbnail
+
+
+class VideoSchema(ma.Schema):
+    class Meta:
+        fields = ('id','youtube_id','title','description','uploader','thumbnail')
+
+video_schema = VideoSchema()
+videos_schema = VideoSchema(many=True)
+
+    
 
 class MyLogger(object):
     """Logger class for youtube_dl Logger to tell yt-dl to print errors"""
@@ -52,12 +86,18 @@ def get_download_files(path):
     return send_from_directory('download',path)
 
 
+@app.route('/info/<youtube_id>',methods=['GET'])
+def info(youtube_id):
+    video = Video.query.filter_by(youtube_id=youtube_id).first()
+    print(video)
+    return video_schema.jsonify(video)
+
 @app.route('/download',methods=['GET'])
 def download():
     ydl_opts = {
         "format": "bestaudio[ext=m4a]",
         "progress_hooks": [my_hook],
-        "outtmpl":"download/%(title)s.%(ext)s",
+        "outtmpl":"download/%(id)s.%(ext)s",
         "postprocessors": [{
             'key':'FFmpegExtractAudio',
             'preferredcodec':'mp3',
@@ -80,6 +120,10 @@ def download():
 
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
+    print(info)
+    video = Video(info['id'], info['title'], info['description'], info['uploader'], info['thumbnail'])
+    db.session.add(video)
+    db.session.commit()
     return jsonify({"message":"downloading","info":info})
 
 if __name__ == "__main__":
