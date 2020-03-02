@@ -4,11 +4,14 @@ from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
+from feedgen.feed import FeedGenerator
 
 app = Flask(__name__)
 
-
+baseurl = 'http://192.168.0.13:5000/'
 basedir = os.path.abspath(os.path.dirname(__file__))
+
+# DB stuff
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///'+os.path.join(basedir, 'db.sqlite')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -79,6 +82,49 @@ def get_useful_information(info):
     result['uploader'] = info['uploader']
     return result
 
+def get_all_videos():
+    videos_db = Video.query.all()
+    videos = videos_schema.dump(videos_db)
+    return videos
+
+
+def create_feed():
+    """Creates feed from items from db"""
+
+    fg = FeedGenerator()
+    fg.load_extension('podcast')
+    fg.title('My feed')
+    fg.link(href=baseurl, rel='alternate')
+    fg.description('Some description')
+    fg.author({"name":"makovako", "email":"test@example.com"})
+    fg.podcast.itunes_owner(name='makovako',email='test@example.com')
+    
+    fg.podcast.itunes_author("makovako")
+
+    videos = get_all_videos()
+    for video in videos:
+        fe = fg.add_entry()
+        fe.id(baseurl + 'download/' + video['youtube_id'])
+        fe.title(video['title'])
+        fe.description(video['description'])
+        fe.podcast.itunes_author(video['uploader'])
+        fe.podcast.itunes_image(video['thumbnail'])
+        fe.enclosure(baseurl+'download/'+video['youtube_id']+'.mp3',0,'audio/mpeg')
+    fg.rss_str(pretty=True)
+    fg.rss_file('download/feed.xml')
+
+
+
+
+@app.route('/generate',methods=['GET'])
+def generate_feed():
+    create_feed()
+    return jsonify({"Created":True})
+    
+@app.route('/all', methods=['GET'])
+def get_videos():
+    return jsonify(get_all_videos())
+
 @app.route('/download/<path>',methods=['GET'])
 def get_download_files(path):
     """Allows all content of download folder to be served"""
@@ -89,7 +135,6 @@ def get_download_files(path):
 @app.route('/info/<youtube_id>',methods=['GET'])
 def info(youtube_id):
     video = Video.query.filter_by(youtube_id=youtube_id).first()
-    print(video)
     return video_schema.jsonify(video)
 
 @app.route('/download',methods=['GET'])
@@ -120,7 +165,6 @@ def download():
 
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
-    print(info)
     video = Video(info['id'], info['title'], info['description'], info['uploader'], info['thumbnail'])
     db.session.add(video)
     db.session.commit()
@@ -129,5 +173,5 @@ def download():
 if __name__ == "__main__":
     create_download_directory()
 
-    app.run(debug=True)
+    app.run(host='0.0.0.0',debug=True)
 
